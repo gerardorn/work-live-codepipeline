@@ -1,0 +1,304 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Work CodePipeline Stack",
+  "Parameters": {
+    "CmkArn": {
+      "Type": "String",
+      "Description": "ARN for the KMS CMK"
+    },
+    "CodeBuildServiceRoleArn": {
+      "Type": "String",
+      "Description": "CodeBuild Service role ARN"
+    },
+    "ArtifactBucketName": {
+      "Type": "String",
+      "Description": "The bucket holding the artifacts"
+    },
+    "CodePipelineServiceRoleArn": {
+      "Type": "String",
+      "Description": "CodePipeline Service role ARN"
+    },
+    "CloudFormationServiceRoleArn": {
+      "Type": "String",
+      "Description": "CloudFormation Service role ARN"
+    },
+    "RepositoryName": {
+      "Type": "String",
+      "Description": "CodeCommit repo name"
+    },
+    "LiveAccountNumber": {
+      "Type": "String",
+      "Description": "AWS Account Number for Live environment"
+    }
+  },
+  "Resources": {
+    "CodeBuildProject": {
+      "Type": "AWS::CodeBuild::Project",
+      "Properties": {
+        "Name": {
+          "Fn::Sub": "${AWS::StackName}-codebuild-project"
+        },
+        "EncryptionKey": {
+          "Ref": "CmkArn"
+        },
+        "ServiceRole": {
+          "Ref": "CodeBuildServiceRoleArn"
+        },
+        "Artifacts": {
+          "Type": "CODEPIPELINE"
+        },
+        "Environment": {
+          "Type": "linuxContainer",
+          "ComputeType": "BUILD_GENERAL1_SMALL",
+          "Image": "aws/codebuild/amazonlinux2-x86_64-standard:3.0",
+          "EnvironmentVariables": [
+            {
+              "Name": "ArtifactBucketName",
+              "Value": {
+                "Ref": "ArtifactBucketName"
+              }
+            },
+            {
+              "Name": "CmkArn",
+              "Value": {
+                "Ref": "CmkArn"
+              }
+            }
+          ]
+        },
+        "Source": {
+          "Type": "CODEPIPELINE"
+        }
+      }
+    },
+    "Pipeline": {
+      "Type": "AWS::CodePipeline::Pipeline",
+      "Properties": {
+        "RoleArn": {
+          "Ref": "CodePipelineServiceRoleArn"
+        },
+        "Name": {
+          "Fn::Sub": "${RepositoryName}"
+        },
+        "Stages": [
+          {
+            "Name": "Source",
+            "Actions": [
+              {
+                "Name": "Infra",
+                "ActionTypeId": {
+                  "Category": "Source",
+                  "Owner": "AWS",
+                  "Version": "1",
+                  "Provider": "CodeCommit"
+                },
+                "Configuration": {
+                  "RepositoryName": {
+                    "Ref": "RepositoryName"
+                  },
+                  "BranchName": "main",
+                  "OutputArtifactFormat": "CODE_ZIP",
+                  "PollForSourceChanges": "false"
+                },
+                "OutputArtifacts": [
+                  {
+                    "Name": "SourceArtifact"
+                  }
+                ],
+                "RunOrder": 1
+              }
+            ]
+          },
+          {
+            "Name": "Build",
+            "Actions": [
+              {
+                "Name": "Build",
+                "ActionTypeId": {
+                  "Category": "Build",
+                  "Owner": "AWS",
+                  "Version": "1",
+                  "Provider": "CodeBuild"
+                },
+                "Configuration": {
+                  "ProjectName": {
+                    "Ref": "CodeBuildProject"
+                  }
+                },
+                "RunOrder": 1,
+                "InputArtifacts": [
+                  {
+                    "Name": "SourceArtifact"
+                  }
+                ],
+                "OutputArtifacts": [
+                  {
+                    "Name": "BuildArtifact"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "Name": "DeployToStaging",
+            "Actions": [
+              {
+                "Name": "CreateChangeSetStaging",
+                "ActionTypeId": {
+                  "Category": "Deploy",
+                  "Owner": "AWS",
+                  "Version": "1",
+                  "Provider": "CloudFormation"
+                },
+                "Configuration": {
+                  "ChangeSetName": {
+                    "Fn::Sub": "${RepositoryName}-staging"
+                  },
+                  "ActionMode": "CHANGE_SET_REPLACE",
+                  "RoleArn": {
+                    "Ref": "CloudFormationServiceRoleArn"
+                  },
+                  "StackName": {
+                    "Fn::Sub": "${RepositoryName}-staging"
+                  },
+                  "Capabilities": "CAPABILITY_NAMED_IAM",
+                  "TemplatePath": "BuildArtifact::packaged.json"
+                },
+                "InputArtifacts": [
+                  {
+                    "Name": "BuildArtifact"
+                  }
+                ],
+                "RunOrder": 1
+              },
+              {
+                "Name": "DeployChangeSetStaging",
+                "ActionTypeId": {
+                  "Category": "Deploy",
+                  "Owner": "AWS",
+                  "Version": "1",
+                  "Provider": "CloudFormation"
+                },
+                "Configuration": {
+                  "ChangeSetName": {
+                    "Fn::Sub": "${RepositoryName}-staging"
+                  },
+                  "ActionMode": "CHANGE_SET_EXECUTE",
+                  "RoleArn": {
+                    "Ref": "CloudFormationServiceRoleArn"
+                  },
+                  "StackName": {
+                    "Fn::Sub": "${RepositoryName}-staging"
+                  }
+                },
+                "InputArtifacts": [
+                  {
+                    "Name": "BuildArtifact"
+                  }
+                ],
+                "RunOrder": 2
+              }
+            ]
+          },
+          {
+            "Name": "Approval",
+            "Actions": [
+              {
+                "Name": "ApproveStaging",
+                "ActionTypeId": {
+                  "Category": "Approval",
+                  "Owner": "AWS",
+                  "Provider": "Manual",
+                  "Version": "1"
+                },
+                "Configuration": {
+                  "CustomData": "Validate the Staging environment and test the changes before approving"
+                }
+              }
+            ]
+          },
+          {
+            "Name": "DeployToLive",
+            "Actions": [
+              {
+                "Name": "CreateChangeSetLive",
+                "ActionTypeId": {
+                  "Category": "Deploy",
+                  "Owner": "AWS",
+                  "Version": "1",
+                  "Provider": "CloudFormation"
+                },
+                "Configuration": {
+                  "ChangeSetName": {
+                    "Fn::Sub": "${RepositoryName}-live"
+                  },
+                  "ActionMode": "CHANGE_SET_REPLACE",
+                  "StackName": {
+                    "Fn::Sub": "${RepositoryName}-live"
+                  },
+                  "Capabilities": "CAPABILITY_NAMED_IAM",
+                  "TemplatePath": "BuildArtifact::packaged.json",
+                  "RoleArn": {
+                    "Fn::Sub": "arn:aws:iam::${LiveAccountNumber}:role/CloudFormationServiceRole"
+                  }
+                },
+                "InputArtifacts": [
+                  {
+                    "Name": "BuildArtifact"
+                  }
+                ],
+                "RunOrder": 1,
+                "RoleArn": {
+                  "Fn::Sub": "arn:aws:iam::${LiveAccountNumber}:role/WorkAcctCodePipelineCloudFormationServiceRole"
+                }
+              },
+              {
+                "Name": "DeployChangeSetLive",
+                "ActionTypeId": {
+                  "Category": "Deploy",
+                  "Owner": "AWS",
+                  "Version": "1",
+                  "Provider": "CloudFormation"
+                },
+                "Configuration": {
+                  "ChangeSetName": {
+                    "Fn::Sub": "${RepositoryName}-live"
+                  },
+                  "ActionMode": "CHANGE_SET_EXECUTE",
+                  "StackName": {
+                    "Fn::Sub": "${RepositoryName}-live"
+                  },
+                  "RoleArn": {
+                    "Fn::Sub": "arn:aws:iam::${LiveAccountNumber}:role/CloudFormationServiceRole"
+                  }
+                },
+                "InputArtifacts": [
+                  {
+                    "Name": "BuildArtifact"
+                  }
+                ],
+                "RunOrder": 2,
+                "RoleArn": {
+                  "Fn::Sub": "arn:aws:iam::${LiveAccountNumber}:role/WorkAcctCodePipelineCloudFormationServiceRole"
+                }
+              }
+            ]
+          }
+        ],
+        "ArtifactStore": {
+          "Type": "S3",
+          "Location": {
+            "Ref": "ArtifactBucketName"
+          },
+          "EncryptionKey": {
+            "Id": {
+              "Ref": "CmkArn"
+            },
+            "Type": "KMS"
+          }
+        }
+      }
+    }
+  },
+  "Outputs": {}
+}

@@ -1,0 +1,75 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Work Main Stack",
+  "Parameters": {
+    "LiveAccountNumber": {
+      "Type": "String",
+      "Description": "AWS Live Account number"
+    },
+    "ArtifactBucketName": {
+      "Type": "String",
+      "Description": "Artifact Bucket name"
+    },
+    "RepositoryName": {
+      "Type": "String",
+      "Description": "CodeCommit repository name"
+    }
+  },
+  "Resources": {
+    "SecurityStack": {
+      "Type": "AWS::CloudFormation::Stack",
+      "Properties": {
+        "Parameters": {
+          "LiveAccountNumber": {
+            "Ref": "LiveAccountNumber"
+          },
+          "ArtifactBucketName": {
+            "Ref": "ArtifactBucketName"
+          }
+        },
+        "TemplateURL": "security/security-stack.json"
+      }
+    },
+    "PipelineStack": {
+      "Type": "AWS::CloudFormation::Stack",
+      "Properties": {
+        "Parameters": {
+          "CmkArn": {
+            "Fn::GetAtt": [
+              "SecurityStack",
+              "Outputs.CmkArn"
+            ]
+          },
+          "CodeBuildServiceRoleArn": {
+            "Fn::GetAtt": [
+              "SecurityStack",
+              "Outputs.CodeBuildServiceRoleArn"
+            ]
+          },
+          "ArtifactBucketName": {
+            "Ref": "ArtifactBucketName"
+          },
+          "CodePipelineServiceRoleArn": {
+            "Fn::GetAtt": [
+              "SecurityStack",
+              "Outputs.CodePipelineServiceRoleArn"
+            ]
+          },
+          "CloudFormationServiceRoleArn": {
+            "Fn::GetAtt": [
+              "SecurityStack",
+              "Outputs.CloudFormationServiceRoleArn"
+            ]
+          },
+          "RepositoryName": {
+            "Ref": "RepositoryName"
+          },
+          "LiveAccountNumber": {
+            "Ref": "LiveAccountNumber"
+          }
+        },
+        "TemplateURL": "pipeline/pipeline-stack.json"
+      }
+    }
+  }
+}

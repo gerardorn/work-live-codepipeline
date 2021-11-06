@@ -1,0 +1,30 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Live Main Stack",
+  "Parameters": {
+    "WorkAccountNumber": {
+      "Type": "Number",
+      "Description": "AWS Work Account number"
+    },
+    "ArtifactBucketName": {
+      "Type": "String",
+      "Description": "Artifact Bucket name"
+    }
+  },
+  "Resources": {
+    "SecurityStack": {
+      "Type": "AWS::CloudFormation::Stack",
+      "Properties": {
+        "Parameters": {
+          "WorkAccountNumber": {
+            "Ref": "WorkAccountNumber"
+          },
+          "ArtifactBucketName": {
+            "Ref": "ArtifactBucketName"
+          }
+        },
+        "TemplateURL": "security/security-stack.json"
+      }
+    }
+  }
+}

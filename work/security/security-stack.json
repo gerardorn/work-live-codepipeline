@@ -1,0 +1,354 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Work Security Stack",
+  "Parameters": {
+    "LiveAccountNumber": {
+      "Type": "String",
+      "Description": "AWS Account Number for Live environment"
+    },
+    "ArtifactBucketName": {
+      "Type": "String",
+      "Description": "The bucket name that holds the artifacts generated"
+    }
+  },
+  "Resources": {
+    "KmsKey": {
+      "Type": "AWS::KMS::Key",
+      "Properties": {
+        "Description": "Artifact encryption key",
+        "EnableKeyRotation": "true",
+        "KeyPolicy": {
+          "Version": "2012-10-17",
+          "Id": {
+            "Ref": "AWS::StackName"
+          },
+          "Statement": [
+            {
+              "Sid": "Allows admin of the key",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": [
+                  {
+                    "Fn::Sub": "arn:aws:iam::${AWS::AccountId}:root"
+                  }
+                ]
+              },
+              "Action": [
+                "kms:Create*",
+                "kms:Describe*",
+                "kms:Enable*",
+                "kms:List*",
+                "kms:Put*",
+                "kms:Update*",
+                "kms:Revoke*",
+                "kms:Disable*",
+                "kms:Get*",
+                "kms:Delete*",
+                "kms:ScheduleKeyDeletion",
+                "kms:CancelKeyDeletion"
+              ],
+              "Resource": "*"
+            },
+            {
+              "Sid": "Allows use from the Live account",
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": [
+                  {
+                    "Fn::Sub": "arn:aws:iam::${LiveAccountNumber}:root"
+                  },
+                  {
+                    "Fn::Sub": "arn:aws:iam::${AWS::AccountId}:root"
+                  }
+                ]
+              },
+              "Action": [
+                "kms:Encrypt",
+                "kms:Decrypt",
+                "kms:ReEncrypt*",
+                "kms:GenerateDataKey*",
+                "kms:DescribeKey"
+              ],
+              "Resource": "*"
+            }
+          ]
+        }
+      }
+    },
+    "KmsAlias": {
+      "Type": "AWS::KMS::Alias",
+      "Properties": {
+        "AliasName": "alias/codepipeline-crossaccounts",
+        "TargetKeyId": {
+          "Ref": "KmsKey"
+        }
+      }
+    },
+    "ArtifactBucketPolicy": {
+      "Type": "AWS::S3::BucketPolicy",
+      "Properties": {
+        "Bucket": {
+          "Ref": "ArtifactBucketName"
+        },
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "s3:*"
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::Sub": "arn:aws:s3:::${ArtifactBucketName}"
+                },
+                {
+                  "Fn::Sub": "arn:aws:s3:::${ArtifactBucketName}/*"
+                }
+              ],
+              "Principal": {
+                "AWS": [
+                  {
+                    "Fn::Sub": "arn:aws:iam::${LiveAccountNumber}:root"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "CodeBuildServiceRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": {
+          "Fn::Sub": "${AWS::StackName}-codebuild-role"
+        },
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "codebuild.amazonaws.com"
+                ]
+              },
+              "Action": [
+                "sts:AssumeRole"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "CodeBuildPolicy": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyName": {
+          "Fn::Sub": "${AWS::StackName}-codebuild-policy"
+        },
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": [
+                "s3:GetBucketAcl",
+                "s3:PutObject",
+                "s3:GetBucketPolicy",
+                "s3:ListBucket",
+                "s3:GetObject"
+              ],
+              "Resource": [
+                {
+                  "Fn::Sub": "arn:aws:s3:::${ArtifactBucketName}"
+                },
+                {
+                  "Fn::Sub": "arn:aws:s3:::${ArtifactBucketName}/*"
+                }
+              ]
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
+                "kms:*"
+              ],
+              "Resource": {
+                "Fn::GetAtt": [
+                  "KmsKey",
+                  "Arn"
+                ]
+              }
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
+                "logs:CreateLogGroup",
+                "logs:CreateLogStream",
+                "logs:PutLogEvents"
+              ],
+              "Resource": "arn:aws:logs:*:*:*"
+            }
+          ]
+        },
+        "Roles": [
+          {
+            "Ref": "CodeBuildServiceRole"
+          }
+        ]
+      }
+    },
+    "CodePipelineServiceRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": {
+          "Fn::Sub": "${AWS::StackName}-codepipeline-role"
+        },
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "codepipeline.amazonaws.com"
+                ]
+              },
+              "Action": [
+                "sts:AssumeRole"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "CodePipelinePolicy": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyName": {
+          "Fn::Sub": "${AWS::StackName}-codepipeline-policy"
+        },
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": [
+                "iam:PassRole",
+                "codecommit:*",
+                "codedeploy:*",
+                "cloudformation:*",
+                "codebuild:*",
+                "s3:*",
+                "kms:*"
+              ],
+              "Resource": "*"
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Resource": [
+                {
+                  "Fn::Sub": "arn:aws:iam::${LiveAccountNumber}:role/WorkAcctCodePipelineCloudFormationServiceRole"
+                }
+              ]
+            }
+          ]
+        },
+        "Roles": [
+          {
+            "Ref": "CodePipelineServiceRole"
+          }
+        ]
+      }
+    },
+    "CloudFormationServiceRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": {
+          "Fn::Sub": "${AWS::StackName}-cloudformation-role"
+        },
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "cloudformation.amazonaws.com"
+                ]
+              },
+              "Action": [
+                "sts:AssumeRole"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "CloudFormationPolicy": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyName": {
+          "Fn::Sub": "${AWS::StackName}-cloudformation-policy"
+        },
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": [
+                "ec2:*",
+                "rds:*",
+                "s3:*",
+                "secretsmanager:*"
+              ],
+              "Resource": "*"
+            }
+          ]
+        },
+        "Roles": [
+          {
+            "Ref": "CloudFormationServiceRole"
+          }
+        ]
+      }
+    }
+  },
+  "Outputs": {
+    "CmkArn": {
+      "Value": {
+        "Fn::GetAtt": [
+          "KmsKey",
+          "Arn"
+        ]
+      }
+    },
+    "CodeBuildServiceRoleArn": {
+      "Value": {
+        "Fn::GetAtt": [
+          "CodeBuildServiceRole",
+          "Arn"
+        ]
+      }
+    },
+    "CodePipelineServiceRoleArn": {
+      "Value": {
+        "Fn::GetAtt": [
+          "CodePipelineServiceRole",
+          "Arn"
+        ]
+      }
+    },
+    "CloudFormationServiceRoleArn": {
+      "Value": {
+        "Fn::GetAtt": [
+          "CloudFormationServiceRole",
+          "Arn"
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,132 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Live Security Stack",
+  "Parameters": {
+    "ArtifactBucketName": {
+      "Type": "String",
+      "Description": "The bucket name that holds the artifacts generated"
+    },
+    "WorkAccountNumber": {
+      "Type": "String",
+      "Description": "AWS Account Number for Work environment"
+    }
+  },
+  "Resources": {
+    "WorkAcctCodePipelineCloudFormationServiceRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": "WorkAcctCodePipelineCloudFormationServiceRole",
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Ref": "WorkAccountNumber"
+                }
+              },
+              "Action": [
+                "sts:AssumeRole"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "WorkAcctCodePipelineCloudFormationPolicy": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyName": "WorkAcctCodePipelineCloudFormationPolicy",
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": [
+                "cloudformation:*",
+                "s3:*",
+                "iam:PassRole"
+              ],
+              "Resource": "*"
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
+                "kms:*"
+              ],
+              "Resource": "*"
+            }
+          ]
+        },
+        "Roles": [
+          {
+            "Ref": "WorkAcctCodePipelineCloudFormationServiceRole"
+          }
+        ]
+      }
+    },
+    "CloudFormationServiceRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": "CloudFormationServiceRole",
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "cloudformation.amazonaws.com"
+                ]
+              },
+              "Action": [
+                "sts:AssumeRole"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "CloudFormationPolicy": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyName": "CloudFormationPolicy",
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": [
+                "ec2:*",
+                "secretsmanager:*",
+                "rds:*"
+              ],
+              "Resource": "*"
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
+                "s3:*"
+              ],
+              "Resource": [
+                {
+                  "Fn::Sub": "arn:aws:s3:::${ArtifactBucketName}"
+                },
+                {
+                  "Fn::Sub": "arn:aws:s3:::${ArtifactBucketName}/*"
+                }
+              ]
+            }
+          ]
+        },
+        "Roles": [
+          {
+            "Ref": "CloudFormationServiceRole"
+          }
+        ]
+      }
+    }
+  },
+  "Outputs": {}
+}
